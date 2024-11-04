@@ -5,16 +5,30 @@ from PIL import Image
 import numpy as np
 import io
 import os
+import requests
 
 app = Flask(__name__)
 CORS(app)
 
-# Load model yang sudah disave
+# URL model dari Google Drive
+MODEL_URL = "https://drive.google.com/uc?export=download&id=1CswCfFUwgZwqyuJzd6vYnjjj6g5a_NCD"
+
+def download_model():
+    if not os.path.exists('model_sign_train.h5'):
+        print("Downloading model...")
+        response = requests.get(MODEL_URL)
+        with open('model_sign_train.h5', 'wb') as f:
+            f.write(response.content)
+        print("Model downloaded successfully!")
+
+# Download dan load model saat startup
 try:
+    print("Initializing model...")
+    download_model()
     model = tf.keras.models.load_model('model_sign_train.h5')
-    print("Model berhasil dimuat!")
+    print("Model loaded successfully!")
 except Exception as e:
-    print(f"Error saat memuat model: {str(e)}")
+    print(f"Error loading model: {str(e)}")
 
 def preprocess_image(image):
     # Resize gambar ke ukuran 28x28 sesuai dengan training
@@ -27,8 +41,7 @@ def preprocess_image(image):
     # Konversi ke array dan normalisasi
     image = np.array(image) / 255.0
     
-    # Reshape sesuai input shape model
-    # Add channel & batch dimension (None, 28, 28, 1)
+    # Reshape sesuai input shape model (None, 28, 28, 1)
     image = image.reshape(1, 28, 28, 1)
     
     # Convert ke float32
@@ -64,12 +77,11 @@ label_dict = {
     23: "Y"
 }
 
-# Route untuk health check
 @app.route('/', methods=['GET'])
 def health_check():
     return jsonify({
-        'status': 'sehat',
-        'pesan': 'API pengenalan bahasa isyarat sedang berjalan'
+        'status': 'healthy',
+        'message': 'Sign Language Recognition API is running'
     })
 
 @app.route('/predict', methods=['POST'])
@@ -87,7 +99,7 @@ def predict():
         processed_image = preprocess_image(image)
         
         # Debug - print shape
-        print(f"Bentuk gambar setelah preprocessing: {processed_image.shape}")
+        print(f"Processed image shape: {processed_image.shape}")
         
         # Jalankan prediksi
         prediction = model.predict(processed_image)
@@ -103,16 +115,16 @@ def predict():
         
         # Format response
         result = {
-            'prediksi': f'{predicted_label}',
+            'prediksi': predicted_label,
             'confidence': f'{confidence:.2%}',
             'index_kelas': int(predicted_class)
         }
         
-        print(f"Prediksi berhasil: {result}")
+        print(f"Prediction successful: {result}")
         return jsonify(result)
         
     except Exception as e:
-        print(f"Error selama prediksi: {str(e)}")
+        print(f"Error during prediction: {str(e)}")
         return jsonify({
             'error': 'Error selama prediksi',
             'pesan': str(e)
@@ -122,15 +134,7 @@ def predict():
 def test():
     return jsonify({'pesan': 'Flask API sedang berjalan!'})
 
-# Handler untuk error umum
-@app.errorhandler(Exception)
-def handle_exception(e):
-    return jsonify({
-        'error': str(e),
-        'status': 'error'
-    }), 500
-
-# Handler untuk 404 Not Found
+# Error handlers
 @app.errorhandler(404)
 def not_found_error(error):
     return jsonify({
@@ -138,27 +142,22 @@ def not_found_error(error):
         'status': 'error'
     }), 404
 
-# Handler untuk 405 Method Not Allowed
-@app.errorhandler(405)
-def method_not_allowed_error(error):
+@app.errorhandler(Exception)
+def handle_exception(e):
     return jsonify({
-        'error': 'Metode HTTP tidak diizinkan',
+        'error': str(e),
         'status': 'error'
-    }), 405
+    }), 500
 
 if __name__ == '__main__':
-    print("Memulai aplikasi...")
+    print("Starting application...")
     try:
         # Print model summary untuk debugging
         model.summary()
-        print("Model berhasil dimuat!")
-        # Print expected input shape
-        print(f"Bentuk input yang diharapkan: {model.input_shape}")
+        print(f"Expected input shape: {model.input_shape}")
     except Exception as e:
-        print(f"Error saat memuat model: {str(e)}")
-    
-    # Menggunakan port dari environment variable untuk Heroku
+        print(f"Error during startup: {str(e)}")
+        
+    # Gunakan PORT dari environment variable untuk Heroku
     port = int(os.environ.get("PORT", 5000))
-    
-    # Jalankan aplikasi
     app.run(host='0.0.0.0', port=port)
